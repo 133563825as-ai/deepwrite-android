@@ -1,0 +1,11 @@
+# 构建中间产物
+build/
+__pycache__/
+*.pyc
+
+# 签名密钥绝不入库
+*.keystore
+*.jks
+
+# 本地产出的安装包（CI 通过 artifact 分发）
+out/

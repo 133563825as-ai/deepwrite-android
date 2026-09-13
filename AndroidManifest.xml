@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  人读参考文件。真正打进 APK 的是 make_manifest.py 生成的 AXML，两者内容必须一致。
+  容器里没有 arm64 aapt2，所以只能手写 AXML；只用系统资源（@android:style/...），
+  因此不需要 resources.arsc。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="ai.deepwrite.mobile"
+    android:versionCode="2"
+    android:versionName="1.5.1">
+
+    <!-- Android 14 起，targetSdkVersion < 23 的包会被系统直接拒装。
+         缺省时 targetSdk 会退化成 1，所以这一项必须显式写。 -->
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application
+        android:label="DeepWrite"
+        android:usesCleartextTraffic="true"
+        android:hardwareAccelerated="true"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize|uiMode"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

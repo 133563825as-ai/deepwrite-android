@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="DeepWriteTheme" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowBackground">#f7f7f6</item>
+        <item name="android:statusBarColor">#f7f7f6</item>
+        <item name="android:navigationBarColor">#f7f7f6</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>
