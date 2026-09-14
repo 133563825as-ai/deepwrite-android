@@ -25,6 +25,8 @@ THEME_DEVICE_DEFAULT_LIGHT_NO_ACTION_BAR = 0x01030237
 # 系统权限字符串（manifest 里用全名写法）
 PERMISSION_INTERNET = "android.permission.INTERNET"
 PERMISSION_NETWORK_STATE = "android.permission.ACCESS_NETWORK_STATE"
+# 作品存在 /sdcard/Documents/DeepWrite，Node 需要按真实路径读写 —— 只能要这个权限。
+PERMISSION_MANAGE_EXTERNAL_STORAGE = "android.permission.MANAGE_EXTERNAL_STORAGE"
 # 配置变更掩码
 CONFIG_CHANGES = 0x00004FB0  # orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize|uiMode
 SOFT_INPUT_ADJUST_RESIZE = 0x00000010
@@ -47,8 +49,8 @@ def build_manifest():
         "manifest",
         [
             (None, "package", PACKAGE, None),
-            android("versionCode", "2", (TYPE_INT_DEC, 2)),
-            android("versionName", "1.5.1", None),
+            android("versionCode", "3", (TYPE_INT_DEC, 3)),
+            android("versionName", "2.0.0", None),
         ],
     )
 
@@ -71,6 +73,11 @@ def build_manifest():
         [android("name", PERMISSION_NETWORK_STATE, None)],
     )
     builder.end_element("uses-permission")
+    builder.start_element(
+        "uses-permission",
+        [android("name", PERMISSION_MANAGE_EXTERNAL_STORAGE, None)],
+    )
+    builder.end_element("uses-permission")
 
     builder.start_element(
         "application",
@@ -79,6 +86,9 @@ def build_manifest():
             android("usesCleartextTraffic", "true", (TYPE_INT_BOOLEAN, 0xFFFFFFFF)),
             android("hardwareAccelerated", "true", (TYPE_INT_BOOLEAN, 0xFFFFFFFF)),
             android("supportsRtl", "true", (TYPE_INT_BOOLEAN, 0xFFFFFFFF)),
+            # 必须为 true：libnode.so 要落到 nativeLibraryDir 才能被 exec
+            # （Android 10+ 禁止执行应用可写目录里的文件）。
+            android("extractNativeLibs", "true", (TYPE_INT_BOOLEAN, 0xFFFFFFFF)),
             android(
                 "theme",
                 "@android:style/Theme.DeviceDefault.Light.NoActionBar",

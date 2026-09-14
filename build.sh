@@ -38,7 +38,8 @@ KS="${KEYSTORE:-$ROOT/deepwrite.keystore}"
 KS_PASS="${KEYSTORE_PASS:-deepwrite}"
 KS_ALIAS="${KEYSTORE_ALIAS:-deepwrite}"
 
-rm -rf "$WORK"
+# 注意：不要清空整个 $WORK —— 里面的 apk/ 是 fetch-runtime.sh 产出的资产目录
+rm -rf "$WORK/classes" "$WORK/dex" "$WORK/aligned.apk"
 mkdir -p "$WORK/classes" "$WORK/dex" "$(dirname "$OUT_APK")"
 
 echo "① 生成 AndroidManifest.xml（AXML）"
@@ -55,22 +56,34 @@ java -cp "$BT/lib/d8.jar" com.android.tools.r8.D8 \
   --min-api 24 --lib "$PLATFORM" --output "$WORK/dex" \
   $(find "$WORK/classes" -name "*.class")
 
-echo "④ 组装 APK（manifest 不压缩，且必须是第一个条目）"
+echo "④ 组装 APK（manifest 第一且不压缩；lib/ 与 assets/ 一并收进去）"
 cp "$WORK/dex/classes.dex" "$WORK/classes.dex"
-python3 - "$WORK" <<'PY'
+APKROOT="${APK_ROOT:-$ROOT/build/apk}"
+if [ ! -d "$APKROOT/assets" ]; then
+  echo "❌ 缺少 $APKROOT —— 先跑一次： bash tools/fetch-runtime.sh"
+  exit 1
+fi
+python3 - "$WORK" "$APKROOT" <<'PY'
 import os, sys, zipfile
 
-work = sys.argv[1]
-os.chdir(work)
-with zipfile.ZipFile("unsigned.apk", "w") as out:
-    out.write("AndroidManifest.xml", "AndroidManifest.xml", zipfile.ZIP_STORED)
-    out.write("classes.dex", "classes.dex", zipfile.ZIP_DEFLATED)
-with zipfile.ZipFile("unsigned.apk") as zin, zipfile.ZipFile("aligned.apk", "w") as zout:
-    for info in zin.infolist():
-        data = zin.read(info.filename)
-        compress = zipfile.ZIP_STORED if info.filename == "AndroidManifest.xml" else zipfile.ZIP_DEFLATED
-        zout.writestr(info.filename, data, compress_type=compress)
-print("  已组装 aligned.apk")
+work, apkroot = sys.argv[1], sys.argv[2]
+out_path = os.path.join(work, "aligned.apk")
+total = 0
+with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as out:
+    out.write(os.path.join(work, "AndroidManifest.xml"), "AndroidManifest.xml", zipfile.ZIP_STORED)
+    out.write(os.path.join(work, "classes.dex"), "classes.dex", zipfile.ZIP_DEFLATED)
+    for zip_prefix, src in (("lib", os.path.join(apkroot, "lib")),
+                            ("assets", os.path.join(apkroot, "assets"))):
+        if not os.path.isdir(src):
+            continue
+        for dirpath, _dirs, names in os.walk(src):
+            for name in names:
+                full = os.path.join(dirpath, name)
+                rel = os.path.relpath(full, src)
+                arc = zip_prefix + "/" + rel.replace(os.sep, "/")
+                out.write(full, arc, zipfile.ZIP_DEFLATED)
+                total += 1
+print(f"  已组装 aligned.apk（{total} 个附加条目，{os.path.getsize(out_path)/1048576:.1f} MB）")
 PY
 
 echo "⑤ 签名"
@@ -87,6 +100,7 @@ java -jar "$BT/lib/apksigner.jar" sign \
   --ks "$KS" --ks-key-alias "$KS_ALIAS" \
   --ks-pass "pass:$KS_PASS" --key-pass "pass:$KS_PASS" \
   --min-sdk-version 24 \
+  --v1-signing-enabled true \
   --out "$OUT_APK" "$WORK/aligned.apk"
 
 java -jar "$BT/lib/apksigner.jar" verify --min-sdk-version 24 --print-certs "$OUT_APK" | head -3

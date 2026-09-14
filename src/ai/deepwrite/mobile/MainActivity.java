@@ -1,57 +1,77 @@
 package ai.deepwrite.mobile;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.Settings;
+import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebChromeClient.FileChooserParams;
-import android.webkit.WebResourceError;
-import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
-import android.graphics.Typeface;
-import android.view.Gravity;
-import android.util.TypedValue;
 
+import java.io.File;
+import java.io.RandomAccessFile;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * DeepWrite 手机端外壳：加载本机运行的 DeepWrite Web 服务。
- * 服务不通时显示引导页，并允许用户重试或换地址。
+ * DeepWrite 独立版：APK 自带 Node 运行时与应用本体，不依赖任何外部服务。
+ *
+ * 启动顺序：要存储权限 → 首次解压 assets（约 63MB）→ exec libnode.so server.mjs
+ *          → 等 127.0.0.1:8790 就绪 → WebView 全屏加载。
+ *
+ * 失败时把 node 的日志尾巴直接显示在屏幕上 —— 这类环境问题没有别的手段可查。
  */
 public class MainActivity extends Activity {
-    private static final String DEFAULT_URL = "http://127.0.0.1:8790/";
-
-    private WebView webView;
-    private FrameLayout root;
-    private View errorView;
-    private String currentUrl = DEFAULT_URL;
-
-    /** 页面发起的文件选择请求；同一时刻只能有一个，未回填前必须保持引用。 */
-    private ValueCallback<Uri[]> pendingFileChooser;
+    // 故意避开 8790：那是容器里跑的 Web 服务用的端口。两者共享同一个 127.0.0.1，
+    // 撞端口会让 App 要么起不来、要么 WebView 连到容器那个服务上（看着正常实则连错）。
+    private static final int PORT = 18790;
     private static final int REQUEST_FILE_CHOOSER = 1001;
+    private static final int REQUEST_LEGACY_STORAGE = 1002;
+
+    private FrameLayout root;
+    private WebView webView;
+    private LinearLayout statusPanel;
+    private TextView statusTitle;
+    private TextView statusDetail;
+    private TextView statusLog;
+    private Button retryButton;
+
+    private RuntimeInstaller installer;
+    private NodeRunner runner;
+    private ValueCallback<Uri[]> pendingFileChooser;
+    private volatile boolean busy = false;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        Window window = getWindow();
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+        installer = new RuntimeInstaller(this);
+        runner = new NodeRunner(this, new File(getFilesDir(), "logs/node.log"));
 
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.parseColor("#f7f7f6"));
@@ -63,113 +83,233 @@ public class MainActivity extends Activity {
         settings.setDatabaseEnabled(true);
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
-        settings.setSupportZoom(true);
-        settings.setBuiltInZoomControls(true);
-        settings.setDisplayZoomControls(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
-
         webView.setBackgroundColor(Color.parseColor("#f7f7f6"));
-        // 没有 onShowFileChooser 的 WebChromeClient，页面里的 <input type="file">
-        // 点了完全没反应 —— 这就是手机端「不支持上传文件」的直接原因。
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onShowFileChooser(
-                    WebView view,
-                    ValueCallback<Uri[]> filePathCallback,
-                    FileChooserParams fileChooserParams) {
-                return openFileChooser(filePathCallback, fileChooserParams);
+                    WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
+                return openFileChooser(callback, params);
             }
         });
-        webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                Uri uri = request.getUrl();
-                if (uri == null) return false;
-                String scheme = uri.getScheme();
-                if (scheme != null && (scheme.equals("http") || scheme.equals("https"))) {
-                    String host = uri.getHost();
-                    if (host != null && (host.equals("127.0.0.1") || host.equals("localhost"))) {
-                        return false;
-                    }
-                }
-                return true;
-            }
-
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                hideError();
-            }
-
-            @Override
-            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-                if (request.isForMainFrame()) {
-                    showError();
-                }
-            }
-        });
-
+        webView.setWebViewClient(new WebViewClient());
         root.addView(webView, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        buildErrorView();
+        buildStatusPanel();
+        root.addView(statusPanel, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
         setContentView(root);
-        webView.loadUrl(currentUrl);
+        startFlow();
     }
 
-    private void buildErrorView() {
-        FrameLayout layout = new FrameLayout(this);
-        layout.setBackgroundColor(Color.parseColor("#f7f7f6"));
-        layout.setVisibility(View.GONE);
+    /* ---------------- 状态面板 ---------------- */
 
-        TextView text = new TextView(this);
-        text.setText("连不上 DeepWrite 服务。\n\n请先在容器里启动服务，再点这里重试。\n服务地址：" + DEFAULT_URL);
-        text.setTextColor(Color.parseColor("#3a3a3a"));
-        text.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        text.setTypeface(Typeface.DEFAULT);
-        text.setGravity(Gravity.CENTER);
-        text.setPadding(48, 48, 48, 48);
-        text.setOnClickListener(new View.OnClickListener() {
+    private void buildStatusPanel() {
+        statusPanel = new LinearLayout(this);
+        statusPanel.setOrientation(LinearLayout.VERTICAL);
+        statusPanel.setBackgroundColor(Color.parseColor("#f7f7f6"));
+        statusPanel.setGravity(Gravity.CENTER);
+        int pad = dp(28);
+        statusPanel.setPadding(pad, pad, pad, pad);
+
+        statusTitle = new TextView(this);
+        statusTitle.setText("DeepWrite");
+        statusTitle.setTextColor(Color.parseColor("#2b2b2b"));
+        statusTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
+        statusTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        statusTitle.setGravity(Gravity.CENTER);
+        statusPanel.addView(statusTitle);
+
+        statusDetail = new TextView(this);
+        statusDetail.setTextColor(Color.parseColor("#5a5a5a"));
+        statusDetail.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        statusDetail.setGravity(Gravity.CENTER);
+        statusDetail.setPadding(0, dp(12), 0, dp(12));
+        statusPanel.addView(statusDetail);
+
+        statusLog = new TextView(this);
+        statusLog.setTextColor(Color.parseColor("#8a4a4a"));
+        statusLog.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        statusLog.setGravity(Gravity.START);
+        statusLog.setVisibility(View.GONE);
+        statusPanel.addView(statusLog);
+
+        retryButton = new Button(this);
+        retryButton.setText("重试");
+        retryButton.setVisibility(View.GONE);
+        retryButton.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onClick(View v) {
-                hideError();
-                webView.reload();
-                Toast.makeText(MainActivity.this, "重新连接中…", Toast.LENGTH_SHORT).show();
+            public void onClick(View view) {
+                startFlow();
             }
         });
-
-        layout.addView(text, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT));
-        errorView = layout;
-        root.addView(errorView);
+        statusPanel.addView(retryButton);
     }
 
-    private void showError() {
+    private int dp(int value) {
+        return (int) TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP, value, getResources().getDisplayMetrics());
+    }
+
+    private void setStatus(final String title, final String detail, final boolean showRetry) {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                errorView.setVisibility(View.VISIBLE);
+                statusPanel.setVisibility(View.VISIBLE);
+                statusTitle.setText(title);
+                statusDetail.setText(detail);
+                retryButton.setVisibility(showRetry ? View.VISIBLE : View.GONE);
             }
         });
     }
 
-    private void hideError() {
+    private void showFailure(final String detail) {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                errorView.setVisibility(View.GONE);
+                statusPanel.setVisibility(View.VISIBLE);
+                statusTitle.setText("启动失败");
+                statusDetail.setText(detail + "\n\nnode 退出码 " + runner.exitCode()
+                        + "\n日志：" + runner.logFile().getAbsolutePath());
+                statusLog.setVisibility(View.VISIBLE);
+                statusLog.setText(tailLog(24));
+                retryButton.setVisibility(View.VISIBLE);
             }
         });
     }
 
-    /* ---------------- 文件选择：页面里的 <input type="file"> 落到这里 ---------------- */
+    private String tailLog(int maxLines) {
+        File file = runner.logFile();
+        if (!file.exists()) {
+            return "(还没有日志)";
+        }
+        try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
+            long length = raf.length();
+            long start = Math.max(0, length - 48 * 1024);
+            raf.seek(start);
+            byte[] buffer = new byte[(int) (length - start)];
+            raf.readFully(buffer);
+            String[] lines = new String(buffer, "UTF-8").split("\n");
+            StringBuilder builder = new StringBuilder();
+            for (int index = Math.max(0, lines.length - maxLines); index < lines.length; index += 1) {
+                builder.append(lines[index]).append('\n');
+            }
+            return builder.toString();
+        } catch (Exception error) {
+            return "(读取日志失败：" + error.getMessage() + ")";
+        }
+    }
+
+    /* ---------------- 启动流程 ---------------- */
+
+    private void startFlow() {
+        if (busy) {
+            return;
+        }
+        busy = true;
+        retryButton.setVisibility(View.GONE);
+        statusLog.setVisibility(View.GONE);
+
+        if (!hasStorageAccess()) {
+            busy = false;
+            setStatus("需要文件访问权限",
+                    "作品要存在手机的 Documents/DeepWrite 里，\n授权后回到本页面会自动继续。", true);
+            requestStorageAccess();
+            return;
+        }
+
+        setStatus("正在启动", "准备运行时…", false);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (runner.isAlive()) {
+                        runner.stop();
+                    }
+                    File dataDir = new File(getFilesDir(), "data");
+                    File documentsDir = new File(
+                            Environment.getExternalStorageDirectory(), "Documents/DeepWrite");
+
+                    if (!installer.isInstalled()) {
+                        setStatus("首次启动", "正在解压运行时（约 63MB），只需一次…", false);
+                        installer.install(new RuntimeInstaller.Progress() {
+                            @Override
+                            public void onProgress(int percent, String message) {
+                                setStatus("正在准备", percent + "%", false);
+                            }
+                        });
+                    }
+
+                    setStatus("正在启动", "拉起 Node 运行时…", false);
+                    runner.start(installer.nodeBinary(), installer.runtimeDir(),
+                            installer.webDir(), dataDir, documentsDir, PORT);
+
+                    setStatus("正在启动", "等待服务就绪…", false);
+                    if (!runner.waitUntilReady(PORT, 90_000L)) {
+                        showFailure("Node 服务没有在 90 秒内就绪。");
+                        return;
+                    }
+
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            webView.loadUrl("http://127.0.0.1:" + PORT + "/");
+                            statusPanel.setVisibility(View.GONE);
+                        }
+                    });
+                } catch (final Throwable error) {
+                    showFailure(String.valueOf(
+                            error.getMessage() == null ? error : error.getMessage()));
+                } finally {
+                    busy = false;
+                }
+            }
+        }, "dw-boot").start();
+    }
+
+    /* ---------------- 存储权限 ---------------- */
+
+    private boolean hasStorageAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return Environment.isExternalStorageManager();
+        }
+        return checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void requestStorageAccess() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                intent.setData(Uri.parse("package:" + getPackageName()));
+                startActivity(intent);
+            } else {
+                requestPermissions(
+                        new String[] { Manifest.permission.WRITE_EXTERNAL_STORAGE },
+                        REQUEST_LEGACY_STORAGE);
+            }
+        } catch (ActivityNotFoundException error) {
+            Toast.makeText(this, "请手动到系统设置里授予「所有文件访问权限」", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // 从权限页回来时自动续上
+        if (!busy && hasStorageAccess() && !runner.isAlive()) {
+            startFlow();
+        }
+    }
+
+    /* ---------------- 文件选择（页面里的 <input type=file>） ---------------- */
 
     private boolean openFileChooser(ValueCallback<Uri[]> callback, FileChooserParams params) {
         if (pendingFileChooser != null) {
-            // 上一次没回填就再来一次，先按取消收尾，否则页面会一直挂着等结果
             pendingFileChooser.onReceiveValue(null);
             pendingFileChooser = null;
         }
@@ -178,14 +318,12 @@ public class MainActivity extends Activity {
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
-        // webkitdirectory 在 Android WebView 里没有实现，选目录一律回落到页面的手输路径。
         if (params != null && params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) {
             intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         }
         List<String> mimeTypes = new ArrayList<>();
         if (params != null && params.getAcceptTypes() != null) {
             for (String accept : params.getAcceptTypes()) {
-                // 页面的 accept 写的是扩展名（.md/.txt），这里只挑真正的 MIME
                 if (accept != null && accept.contains("/")) {
                     mimeTypes.add(accept);
                 }
@@ -196,7 +334,6 @@ public class MainActivity extends Activity {
         } else if (mimeTypes.size() > 1) {
             intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes.toArray(new String[0]));
         }
-
         try {
             startActivityForResult(Intent.createChooser(intent, "选择文件"), REQUEST_FILE_CHOOSER);
             return true;
@@ -228,19 +365,11 @@ public class MainActivity extends Activity {
                 results = new Uri[] { data.getData() };
             }
         }
-        // null 就是「用户取消」，这是 WebView 的约定
         pendingFileChooser.onReceiveValue(results);
         pendingFileChooser = null;
     }
 
-    @Override
-    protected void onDestroy() {
-        if (pendingFileChooser != null) {
-            pendingFileChooser.onReceiveValue(null);
-            pendingFileChooser = null;
-        }
-        super.onDestroy();
-    }
+    /* ---------------- 生命周期 ---------------- */
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
@@ -249,5 +378,17 @@ public class MainActivity extends Activity {
             return true;
         }
         return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (pendingFileChooser != null) {
+            pendingFileChooser.onReceiveValue(null);
+            pendingFileChooser = null;
+        }
+        if (runner != null) {
+            runner.stop();
+        }
+        super.onDestroy();
     }
 }
