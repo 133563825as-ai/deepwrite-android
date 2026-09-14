@@ -24,6 +24,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.WindowManager;
+import android.window.OnBackInvokedDispatcher;
+import android.webkit.JavascriptInterface;
 import android.webkit.MimeTypeMap;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -75,6 +77,50 @@ public class MainActivity extends Activity {
     private volatile boolean busy = false;
 
     /**
+     * 返回键 / 返回手势的落点状态。
+     *
+     * 由渲染层通过 `addJavascriptInterface` 注入的 `window.DeepWriteHost`
+     * **推**上来（`setCanGoBack`），因为壳必须在回调里**同步**决定
+     * 「留在 App 里退一级」还是「finish()」—— `evaluateJavascript` 是异步的，
+     * 等它的回调回来再决定就晚了。
+     */
+    private final class BackStateHost {
+        private volatile boolean canGoBack = false;
+
+        @JavascriptInterface
+        public void setCanGoBack(boolean value) {
+            canGoBack = value;
+        }
+
+        boolean canGoBack() {
+            return canGoBack;
+        }
+    }
+
+    private final BackStateHost backStateHost = new BackStateHost();
+
+    /**
+     * 返回：渲染层说还能退就在 App 内退一级，否则才真的退出。
+     *
+     * 没有这一层的时候，在设置页/工作区页/写作页按返回（或系统侧滑）会**直接退出
+     * 整个 App** —— 因为既没重写 onBackPressed，也没注册 OnBackInvokedCallback。
+     */
+    private void handleBack() {
+        if (backStateHost.canGoBack()) {
+            webView.evaluateJavascript(
+                    "window.__deepwriteBack && window.__deepwriteBack();", null);
+            return;
+        }
+        finish();
+    }
+
+    @Override
+    public void onBackPressed() {
+        // API 33 以下走这里；33+ 且清单开了 enableOnBackInvokedCallback 时走下面注册的回调。
+        handleBack();
+    }
+
+    /**
      * 小窗（freeform）与最近任务里那个标题栏图标，来自 Activity 的 TaskDescription。
      *
      * 不设的话，多数 ROM 会自己回退到清单里的 android:icon；但 vivo 这类定制 ROM
@@ -112,6 +158,8 @@ public class MainActivity extends Activity {
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         webView.setBackgroundColor(Color.parseColor("#f7f7f6"));
+        // 返回状态桥：渲染层推「还能不能退一级」，见 BackStateHost。
+        webView.addJavascriptInterface(backStateHost, "DeepWriteHost");
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onShowFileChooser(
@@ -143,7 +191,20 @@ public class MainActivity extends Activity {
 
         setContentView(root);
         applyWindowInsets();
+        registerBackCallback();
         startFlow();
+    }
+
+    /**
+     * Android 13+ 的返回手势/返回键走 OnBackInvokedCallback（清单里已开
+     * `enableOnBackInvokedCallback`）。低版本由 `onBackPressed()` 兜底。
+     */
+    private void registerBackCallback() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return;
+        }
+        getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::handleBack);
     }
 
     /**
@@ -297,7 +358,7 @@ public class MainActivity extends Activity {
         if (!hasStorageAccess()) {
             busy = false;
             setStatus("需要文件访问权限",
-                    "作品要存在手机的 Documents/DeepWrite 里，\n授权后回到本页面会自动继续。", true);
+                    "作品要存在手机的 Download/DeepWrite 里，\n授权后回到本页面会自动继续。", true);
             requestStorageAccess();
             return;
         }
@@ -311,7 +372,12 @@ public class MainActivity extends Activity {
                         runner.stop();
                     }
                     File dataDir = new File(getFilesDir(), "data");
+                    // 工作目录放 Download 下：文件管理器里一眼能看到，容器侧的
+                    // 设备能力对 Download 也是可读可写的（Documents 只能读）。
                     File documentsDir = new File(
+                            Environment.getExternalStorageDirectory(), "Download/DeepWrite");
+                    // 上一版的默认值，只用于让主进程做一次性「重指」。
+                    File legacyDocumentsDir = new File(
                             Environment.getExternalStorageDirectory(), "Documents/DeepWrite");
 
                     if (!installer.isInstalled()) {
@@ -326,7 +392,7 @@ public class MainActivity extends Activity {
 
                     setStatus("正在启动", "拉起 Node 运行时…", false);
                     runner.start(installer.nodeBinary(), installer.runtimeDir(),
-                            installer.webDir(), dataDir, documentsDir, PORT);
+                            installer.webDir(), dataDir, documentsDir, legacyDocumentsDir, PORT);
 
                     setStatus("正在启动", "等待服务就绪…", false);
                     if (!runner.waitUntilReady(PORT, 90_000L)) {

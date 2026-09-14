@@ -37,6 +37,7 @@ public class NodeRunner {
             File webDir,
             File dataDir,
             File documentsDir,
+            File legacyDocumentsDir,
             int port) throws IOException {
         File libDir = new File(runtimeDir, "lib");
         File home = new File(dataDir, "home");
@@ -63,6 +64,9 @@ public class NodeRunner {
         env.put("NODE_EXTRA_CA_CERTS", new File(runtimeDir, "cacert.pem").getAbsolutePath());
         env.put("DEEPWRITE_USER_DATA_PATH", dataDir.getAbsolutePath());
         env.put("DEEPWRITE_DOCUMENTS_PATH", documentsDir.getAbsolutePath());
+        // 上一版的默认工作目录。主进程只拿它做**一次性搬家**：配置里存的正好是
+        // 这个旧值就重指到新默认值（不搬文件）。见 workspace-directory-store.ts。
+        env.put("DEEPWRITE_LEGACY_DOCUMENTS_PATH", legacyDocumentsDir.getAbsolutePath());
         env.put("DEEPWRITE_WEB_PORT", String.valueOf(port));
         env.put("DEEPWRITE_WEB_HOST", "127.0.0.1");
         env.put("HOME", home.getAbsolutePath());

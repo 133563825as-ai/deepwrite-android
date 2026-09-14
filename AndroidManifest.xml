@@ -6,8 +6,8 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ai.deepwrite.mobile.android"
-    android:versionCode="30"
-    android:versionName="1.5.5">
+    android:versionCode="31"
+    android:versionName="1.5.6">
 
     <!-- Android 14 起，targetSdkVersion < 23 的包会被系统直接拒装
          （INSTALL_FAILED_DEPRECATED_SDK_VERSION）。缺省时 targetSdk 会退化成 1，
@@ -18,9 +18,12 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- 作品落在 /sdcard/Documents/DeepWrite，Node 要按真实路径读写，只能要这个权限。 -->
+    <!-- 作品落在 /sdcard/Download/DeepWrite，Node 要按真实路径读写，只能要这个权限。 -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 
+    <!-- enableOnBackInvokedCallback：返回手势/返回键走新的 OnBackInvokedCallback，
+         MainActivity 据此在 App 内逐级返回，只有退到最外层才真的退出
+         （旧 onBackPressed 也保留，覆盖 API 33 以下）。 -->
     <application
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
@@ -28,6 +31,7 @@
         android:usesCleartextTraffic="true"
         android:hardwareAccelerated="true"
         android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
         android:extractNativeLibs="true"
         android:theme="@style/DeepWriteTheme">
 
