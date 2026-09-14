@@ -3,10 +3,14 @@ package ai.deepwrite.mobile;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.Insets;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Build;
@@ -18,7 +22,9 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.view.WindowManager;
+import android.webkit.MimeTypeMap;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebChromeClient.FileChooserParams;
@@ -64,10 +70,25 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> pendingFileChooser;
     private volatile boolean busy = false;
 
+    /**
+     * 小窗（freeform）与最近任务里那个标题栏图标，来自 Activity 的 TaskDescription。
+     *
+     * 不设的话，多数 ROM 会自己回退到清单里的 android:icon；但 vivo 这类定制 ROM
+     * 会直接显示**系统默认图标**（用户实测：「开小窗，软件的图标变成原始的了」）。
+     * 所以这里显式设一次，走正路。
+     */
+    @SuppressWarnings("deprecation")
+    private void applyTaskDescription() {
+        CharSequence label = getApplicationInfo().loadLabel(getPackageManager());
+        Bitmap icon = BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher);
+        setTaskDescription(new ActivityManager.TaskDescription(label.toString(), icon));
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        applyTaskDescription();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         installer = new RuntimeInstaller(this);
@@ -103,7 +124,48 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         setContentView(root);
+        applyWindowInsets();
         startFlow();
+    }
+
+    /**
+     * targetSdk 35+ 强制 edge-to-edge：窗口会一直画到状态栏和导航栏底下。
+     * 不给内容留边距的话，顶部会被状态栏压住、底部被手势条压住。
+     * 这里直接按系统栏 + 刘海 insets 给根布局加 padding。
+     */
+    private void applyWindowInsets() {
+        root.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+            @Override
+            public WindowInsets onApplyWindowInsets(View view, WindowInsets insets) {
+                int left;
+                int top;
+                int right;
+                int bottom;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    Insets bars = insets.getInsets(
+                            WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                    left = bars.left;
+                    top = bars.top;
+                    right = bars.right;
+                    bottom = bars.bottom;
+                } else {
+                    //noinspection deprecation
+                    left = insets.getSystemWindowInsetLeft();
+                    //noinspection deprecation
+                    top = insets.getSystemWindowInsetTop();
+                    //noinspection deprecation
+                    right = insets.getSystemWindowInsetRight();
+                    //noinspection deprecation
+                    bottom = insets.getSystemWindowInsetBottom();
+                }
+                if (view.getPaddingLeft() != left || view.getPaddingTop() != top
+                        || view.getPaddingRight() != right || view.getPaddingBottom() != bottom) {
+                    view.setPadding(left, top, right, bottom);
+                }
+                return insets;
+            }
+        });
+        root.requestApplyInsets();
     }
 
     /* ---------------- 状态面板 ---------------- */
@@ -235,7 +297,7 @@ public class MainActivity extends Activity {
                             Environment.getExternalStorageDirectory(), "Documents/DeepWrite");
 
                     if (!installer.isInstalled()) {
-                        setStatus("首次启动", "正在解压运行时（约 63MB），只需一次…", false);
+                        setStatus("首次启动", "正在解压运行时（约 137MB），只需一次…", false);
                         installer.install(new RuntimeInstaller.Progress() {
                             @Override
                             public void onProgress(int percent, String message) {
@@ -321,18 +383,36 @@ public class MainActivity extends Activity {
         if (params != null && params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) {
             intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         }
+        // 页面给的 accept 列表长这样：".txt,.md,.markdown,.pdf,image/png,image/jpeg,…"
+        // 里面既有扩展名写法也有 MIME 写法。Android 的取文件界面只认 MIME，
+        // 之前把不带 "/" 的项直接丢掉 —— 于是 .txt/.md/.pdf 全没了，只剩 image/*，
+        // 表现就是「只能选图片」。所以：扩展名先映射成 MIME，映射不出来就记一笔，
+        // 这时干脆不收窄（宁可让用户选到不支持的格式，也不能把支持的全挡住）。
         List<String> mimeTypes = new ArrayList<>();
+        boolean sawUnknownExtension = false;
         if (params != null && params.getAcceptTypes() != null) {
             for (String accept : params.getAcceptTypes()) {
-                if (accept != null && accept.contains("/")) {
+                if (accept == null || accept.isEmpty() || "*/*".equals(accept)) {
+                    continue;
+                }
+                if (accept.contains("/")) {
                     mimeTypes.add(accept);
+                    continue;
+                }
+                String mapped = extensionToMimeType(accept);
+                if (mapped != null) {
+                    mimeTypes.add(mapped);
+                } else {
+                    sawUnknownExtension = true;
                 }
             }
         }
-        if (mimeTypes.size() == 1) {
-            intent.setType(mimeTypes.get(0));
-        } else if (mimeTypes.size() > 1) {
-            intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes.toArray(new String[0]));
+        if (!sawUnknownExtension && !mimeTypes.isEmpty()) {
+            if (mimeTypes.size() == 1) {
+                intent.setType(mimeTypes.get(0));
+            } else {
+                intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes.toArray(new String[0]));
+            }
         }
         try {
             startActivityForResult(Intent.createChooser(intent, "选择文件"), REQUEST_FILE_CHOOSER);
@@ -341,6 +421,33 @@ public class MainActivity extends Activity {
             pendingFileChooser = null;
             Toast.makeText(this, "这台设备上没有可用的文件选择器", Toast.LENGTH_LONG).show();
             return false;
+        }
+    }
+
+    /**
+     * 扩展名 → MIME。
+     *
+     * 只覆盖页面 accept 里真正会出现的那几个；查不到就返回 null，
+     * 调用方据此放弃按类型收窄 —— 猜错比不收窄更糟（会把能选的文件挡掉）。
+     */
+    private String extensionToMimeType(String accept) {
+        String extension = accept.startsWith(".") ? accept.substring(1) : accept;
+        String fromSystem = MimeTypeMap.getSingleton().getMimeTypeFromExtension(
+                extension.toLowerCase(java.util.Locale.ROOT));
+        if (fromSystem != null) {
+            return fromSystem;
+        }
+        switch (extension.toLowerCase(java.util.Locale.ROOT)) {
+            case "md":
+            case "markdown":
+                // 不少系统不认 text/markdown，退到 text/plain 才看得见 .md
+                return "text/plain";
+            case "txt":
+                return "text/plain";
+            case "pdf":
+                return "application/pdf";
+            default:
+                return null;
         }
     }
 

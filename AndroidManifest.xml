@@ -1,27 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  人读参考文件。真正打进 APK 的是 make_manifest.py 生成的 AXML，两者内容必须一致。
-  容器里没有 arm64 aapt2，所以只能手写 AXML；只用系统资源（@android:style/...），
-  因此不需要 resources.arsc。
+  这是真正参与构建的清单（build.sh 第 ① 步交给 aapt2 link）。
+  早先用 tools/make_manifest.py 手写 AXML 绕开 aapt2，那份生成器没有 resources.arsc，
+  于是只能用系统资源、也就没有图标；现在清单恢复成明文，图标与主题走 res/ 里的资源。
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ai.deepwrite.mobile"
-    android:versionCode="2"
+    android:versionCode="26"
     android:versionName="1.5.1">
 
-    <!-- Android 14 起，targetSdkVersion < 23 的包会被系统直接拒装。
-         缺省时 targetSdk 会退化成 1，所以这一项必须显式写。 -->
-    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+    <!-- Android 14 起，targetSdkVersion < 23 的包会被系统直接拒装
+         （INSTALL_FAILED_DEPRECATED_SDK_VERSION）。缺省时 targetSdk 会退化成 1，
+         所以这一项必须显式写。
+         36 = Android 16。targetSdk 35+ 强制 edge-to-edge，MainActivity 已按
+         window insets 给内容留出状态栏/导航栏位置。 -->
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="36" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 作品落在 /sdcard/Documents/DeepWrite，Node 要按真实路径读写，只能要这个权限。 -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 
     <application
-        android:label="DeepWrite"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:usesCleartextTraffic="true"
         android:hardwareAccelerated="true"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        android:extractNativeLibs="true"
+        android:theme="@style/DeepWriteTheme">
 
         <activity
             android:name=".MainActivity"
@@ -29,7 +37,7 @@
             android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize|uiMode"
             android:windowSoftInputMode="adjustResize"
-            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+            android:theme="@style/DeepWriteTheme">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

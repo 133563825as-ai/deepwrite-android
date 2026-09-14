@@ -96,7 +96,15 @@ CERT="$(find "$EXTRACT/ca-certificates"* -name "cert.pem" | head -1)"
 
 echo "④ 收进 Web 产物（$WEB_OUT）"
 [ -d "$WEB_OUT/renderer" ] || { echo "❌ 找不到 $WEB_OUT/renderer，先构建 Web 产物"; exit 1; }
-cp -r "$WEB_OUT/renderer" "$APKROOT/assets/web/renderer"
+# ⚠️ 必须排除 *.apk：renderer/ 目录同时被 8790 当作 APK 的分发目录（放着一份
+# DeepWrite-mobile.apk 供手机下载）。不排除就会把上一版 APK 整份打进新 APK ——
+# 实测能给包里塞进 37MB 的死重量，装到手机上还会白占空间。
+if command -v rsync >/dev/null 2>&1; then
+  rsync -a --exclude='*.apk' "$WEB_OUT/renderer" "$APKROOT/assets/web/"
+else
+  mkdir -p "$APKROOT/assets/web/renderer"
+  (cd "$WEB_OUT/renderer" && find . -type f ! -name '*.apk' -exec cp --parents {} "$APKROOT/assets/web/renderer/" \;)
+fi
 cp -r "$WEB_OUT/main" "$APKROOT/assets/web/main"
 cp "$WEB_OUT/server.mjs" "$APKROOT/assets/web/server.mjs"
 cp "$WEB_OUT/server-workspace.mjs" "$APKROOT/assets/web/server-workspace.mjs"
@@ -123,6 +131,20 @@ for entry in "$WEB_OUT/node_modules"/*; do
 done
 echo "   node_modules: $(ls "$APKROOT/assets/web/node_modules" | tr '\n' ' ')"
 
+# ⚠️ 上面那份是「手工清单」，只挑了直接依赖。pi-ai / pi-agent-core 自己声明的依赖
+# （partial-json、http-proxy-agent…）不在清单里 —— 容器里跑得通，是因为 node 会沿目录
+# 向上找到仓库根的 node_modules，**手机上根本没有那一层**，于是 agent utility 一 fork
+# 就 ERR_MODULE_NOT_FOUND、退出码 1，前端只看到 utility.not_running。
+# 这里按声明的 dependencies 递归补齐闭包（从仓库根的 node_modules 解析，-L 跟随软链）。
+echo "④a 补齐依赖闭包"
+node "$ROOT/tools/copy-runtime-deps.mjs" "$APKROOT" "$WEB_OUT"
+
+# ⚠️ 光补齐还不够，必须**证明**它补齐了。资产树没有向上逃逸的 node_modules，
+# 模块解析行为和真机一致，所以在这里 fork 三个 utility 就能提前抓到
+# 「又缺了一个包」——否则要等用户装到手机上、截图、再猜一轮（5 分钟）。
+echo "④a2 校验 utility 能否在真机同等条件下加载"
+node "$ROOT/tools/verify-utilities.mjs" "$APKROOT/assets/web"
+
 cat > "$APKROOT/assets/runtime/version.json" <<JSON
 {
   "node": "26.4.0",
@@ -135,7 +157,7 @@ JSON
 # 不靠 AssetManager.list 猜目录还是文件 —— 空目录和文件在它眼里长得一样。
 echo "④b 生成资产清单"
 python3 - "$APKROOT" <<'PY'
-import json, os, sys
+import json, os, sys, hashlib
 root = sys.argv[1]
 assets = os.path.join(root, "assets")
 files, total = [], 0
@@ -149,10 +171,16 @@ for dirpath, _dirs, names in os.walk(assets):
         files.append({"p": rel, "s": size})
         total += size
 files.sort(key=lambda item: item["p"])
-manifest = {"version": 1, "total": total, "files": files}
+# version 由内容算出来，不是手工 +1 的常量。
+# 客户端拿它跟自己的安装指纹比，不一致就重新解压 —— 覆盖安装新包必须能铺下新资产。
+digest = hashlib.sha256()
+for item in files:
+    digest.update(f'{item["p"]}:{item["s"]}\n'.encode("utf-8"))
+version = digest.hexdigest()[:16]
+manifest = {"version": version, "total": total, "files": files}
 json.dump(manifest, open(os.path.join(assets, "manifest.json"), "w"),
           ensure_ascii=False, separators=(",", ":"))
-print(f"   清单 {len(files)} 个文件，{total/1048576:.1f} MB")
+print(f"   清单 {len(files)} 个文件，{total/1048576:.1f} MB，指纹 {version}")
 PY
 
 echo

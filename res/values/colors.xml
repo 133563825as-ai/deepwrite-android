@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 官方 adaptive icon 的 background：color/iconBackground = #ff34383d -->
+    <color name="iconBackground">#ff34383d</color>
+</resources>

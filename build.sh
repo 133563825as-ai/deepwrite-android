@@ -1,5 +1,5 @@
 #!/bin/bash
-# DeepWrite 手机壳 APK · 可移植构建脚本。
+# DeepWrite 手机版 APK · 可移植构建脚本。
 # 本地（Android 上的 Ubuntu 容器）与 GitHub Actions 共用这一份逻辑，
 # 唯一需要区分的是 ANDROID_SDK_ROOT。
 #
@@ -7,9 +7,12 @@
 #   bash build.sh                                  # 用默认 SDK 路径
 #   ANDROID_SDK_ROOT=/usr/lib/android-sdk bash build.sh
 #
-# 为什么不用 aapt2：容器里没有 arm64 的 aapt2，所以 manifest 走自研 AXML
-# 生成器（tools/make_manifest.py）。它只引用系统资源，因此不需要 resources.arsc，
-# 也就不需要 aapt2 参与资源编译。
+# 为什么用 aapt2：早先以为「容器里没有 arm64 的 aapt2」，于是手写 AXML 生成器
+# （tools/make_manifest.py）。实测那个前提是错的 —— apt 的 aapt 包顺带提供
+# 原生 aarch64 的 aapt2 / zipalign（见 pick_tool）。手写那套必须绕开 resources.arsc，
+# 代价是：没有图标（系统只给默认图标）、应用详情页读不出完整包信息（占用空间显示 0）、
+# 还得自己维护 Res_value / 资源映射表这些容易写错位的二进制细节。
+# 换成 aapt2 之后 manifest 恢复成明文 src 文件，资源与图标走正规编译。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,33 +33,64 @@ PLATFORM="$PLATFORM_DIR/android.jar"
 [ -f "$PLATFORM" ] || { echo "❌ 缺少 android.jar：$PLATFORM"; exit 1; }
 [ -f "$BT/lib/d8.jar" ] || { echo "❌ 缺少 d8.jar：$BT/lib/d8.jar"; exit 1; }
 
+# aapt2 / zipalign：SDK 里带的是 x86_64，在这台 aarch64 容器上跑不了（bad machine）。
+# Debian/Ubuntu 的 aapt 包顺带提供原生 aarch64 版本，优先用能跑的那份。
+pick_tool() {
+  local name="$1" candidate
+  for candidate in "$(command -v "$name" 2>/dev/null || true)" \
+                   "/usr/lib/android-sdk/build-tools/debian/$name" \
+                   "$BT/$name"; do
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+AAPT2="$(pick_tool aapt2 || true)"
+ZIPALIGN="$(pick_tool zipalign || true)"
+[ -n "$AAPT2" ] || { echo "❌ 找不到能执行的 aapt2（apt-get install -y aapt）"; exit 1; }
+[ -n "$ZIPALIGN" ] || { echo "❌ 找不到能执行的 zipalign（apt-get install -y zipalign）"; exit 1; }
+
 echo "SDK        : $SDK"
 echo "build-tools: $(basename "$BT")"
 echo "platform   : $(basename "$PLATFORM_DIR")"
+echo "aapt2      : $AAPT2 ($("$AAPT2" version | head -1))"
+echo "zipalign   : $ZIPALIGN"
 
 KS="${KEYSTORE:-$ROOT/deepwrite.keystore}"
 KS_PASS="${KEYSTORE_PASS:-deepwrite}"
 KS_ALIAS="${KEYSTORE_ALIAS:-deepwrite}"
 
 # 注意：不要清空整个 $WORK —— 里面的 apk/ 是 fetch-runtime.sh 产出的资产目录
-rm -rf "$WORK/classes" "$WORK/dex" "$WORK/aligned.apk"
+rm -rf "$WORK/classes" "$WORK/dex" "$WORK/aligned.apk" "$WORK/base.apk" "$WORK/unsigned.apk"
 mkdir -p "$WORK/classes" "$WORK/dex" "$(dirname "$OUT_APK")"
 
-echo "① 生成 AndroidManifest.xml（AXML）"
-python3 "$TOOLS/make_manifest.py" "$WORK/AndroidManifest.xml" | head -3
+echo "① 编译资源与清单（aapt2）"
+rm -rf "$WORK/res.zip" "$WORK/gen"
+"$AAPT2" compile --dir "$ROOT/res" -o "$WORK/res.zip"
+# versionCode / versionName / uses-sdk 都写在 AndroidManifest.xml 里，这里不重复指定，
+# 免得两处各说各话。--min-sdk-version 只影响资源限定符的裁剪。
+"$AAPT2" link -o "$WORK/base.apk" -I "$PLATFORM" \
+  --manifest "$ROOT/AndroidManifest.xml" \
+  "$WORK/res.zip" \
+  --min-sdk-version 24 --java "$WORK/gen"
 
 echo "② 编译 Java"
+# ⚠️ 必须把 aapt2 生成的 R.java（第 ① 步的 --java "$WORK/gen"）一起交给 javac。
+# 漏了它，任何用 R.* 引用资源的代码都会报 "package R does not exist" ——
+# 之前没有代码用 R，所以这条一直没暴露（本轮 TaskDescription 取图标时才踩到）。
 javac -encoding UTF-8 -source 17 -target 17 \
   -classpath "$PLATFORM" \
   -d "$WORK/classes" \
-  $(find "$ROOT/src" -name "*.java")
+  $(find "$ROOT/src" "$WORK/gen" -name "*.java")
 
 echo "③ 转 dex"
 java -cp "$BT/lib/d8.jar" com.android.tools.r8.D8 \
   --min-api 24 --lib "$PLATFORM" --output "$WORK/dex" \
   $(find "$WORK/classes" -name "*.class")
 
-echo "④ 组装 APK（manifest 第一且不压缩；lib/ 与 assets/ 一并收进去）"
+echo "④ 组装 APK（aapt2 产物 + dex + lib/ + assets/）"
 cp "$WORK/dex/classes.dex" "$WORK/classes.dex"
 APKROOT="${APK_ROOT:-$ROOT/build/apk}"
 if [ ! -d "$APKROOT/assets" ]; then
@@ -67,26 +101,44 @@ python3 - "$WORK" "$APKROOT" <<'PY'
 import os, sys, zipfile
 
 work, apkroot = sys.argv[1], sys.argv[2]
-out_path = os.path.join(work, "aligned.apk")
+base = os.path.join(work, "base.apk")
+out_path = os.path.join(work, "unsigned.apk")
+# AndroidManifest.xml 与 resources.arsc 必须不压缩（后者是 targetSdk 30+ 的硬要求，
+# 前者沿用一直能装的形态），缩过的 res/ 保持压缩。
+STORED = {"AndroidManifest.xml", "resources.arsc"}
 total = 0
-with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as out:
-    out.write(os.path.join(work, "AndroidManifest.xml"), "AndroidManifest.xml", zipfile.ZIP_STORED)
-    out.write(os.path.join(work, "classes.dex"), "classes.dex", zipfile.ZIP_DEFLATED)
-    for zip_prefix, src in (("lib", os.path.join(apkroot, "lib")),
-                            ("assets", os.path.join(apkroot, "assets"))):
-        if not os.path.isdir(src):
+with zipfile.ZipFile(base) as src, \
+     zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as out:
+    for item in src.infolist():
+        if item.filename.endswith("/"):
             continue
-        for dirpath, _dirs, names in os.walk(src):
+        data = src.read(item.filename)
+        if item.filename in STORED:
+            out.writestr(zipfile.ZipInfo(item.filename), data, zipfile.ZIP_STORED)
+        else:
+            out.writestr(item.filename, data, zipfile.ZIP_DEFLATED)
+        total += 1
+    out.write(os.path.join(work, "classes.dex"), "classes.dex", zipfile.ZIP_DEFLATED)
+    for zip_prefix, src_dir in (("lib", os.path.join(apkroot, "lib")),
+                                ("assets", os.path.join(apkroot, "assets"))):
+        if not os.path.isdir(src_dir):
+            continue
+        for dirpath, _dirs, names in os.walk(src_dir):
             for name in names:
                 full = os.path.join(dirpath, name)
-                rel = os.path.relpath(full, src)
+                rel = os.path.relpath(full, src_dir)
                 arc = zip_prefix + "/" + rel.replace(os.sep, "/")
                 out.write(full, arc, zipfile.ZIP_DEFLATED)
                 total += 1
-print(f"  已组装 aligned.apk（{total} 个附加条目，{os.path.getsize(out_path)/1048576:.1f} MB）")
+print(f"  已组装 unsigned.apk（{total} 个条目，{os.path.getsize(out_path)/1048576:.1f} MB）")
 PY
 
-echo "⑤ 签名"
+echo "⑤ 对齐"
+# 必须在签名之前：apksigner 之后再加 v2 签名块，对齐就被破坏了。
+"$ZIPALIGN" -f -p 4 "$WORK/unsigned.apk" "$WORK/aligned.apk"
+"$ZIPALIGN" -c -p 4 "$WORK/aligned.apk" && echo "   对齐校验通过"
+
+echo "⑥ 签名"
 if [ ! -f "$KS" ]; then
   echo "   未找到 keystore，生成一个临时签名密钥：$KS"
   echo "   （临时密钥每次构建都不同，只能全新安装，不能覆盖升级）"

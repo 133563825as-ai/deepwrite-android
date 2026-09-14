@@ -1,16 +1,22 @@
 name: Build APK
 
-# 在 GitHub 的 Ubuntu runner 上构建 DeepWrite 手机壳 APK。
-# 好处是绕开容器里没有 arm64 aapt2 的限制，且产出物可直接下载分发。
+# ⚠️ 这个 workflow 是「WebView 壳」时代的遗留，**在 CI 上跑不出独立版的 APK**。
+#
+# 原因：独立版的构建分两步 —— 先 `tools/fetch-runtime.sh` 收资产（Node 运行时 +
+# 上游 DeepWrite 的渲染层产物 + 依赖闭包），再 `build.sh`。而第二步的第 ④ 步要求
+# `build/apk/assets` 存在（build.sh 里会直接报「缺少 build/apk」并退出），
+# 那份资产来自**上游 DeepWrite 工作区**（`apps/desktop/out-web`），不在本仓库里。
+# 也就是说本仓库自带不了构建输入，CI 无论怎么配都构建不出这个 APK。
+#
+# 所以这里只保留手动触发，不再挂在 push 上 —— 否则每次改 src/ 或 tools/ 都会
+# 触发一个注定失败的 job，把人训练成「红叉是正常的」。
+#
+# 真正的构建方式：在有上游 DeepWrite 工作区的机器上（就是那台 Android 容器）
+#   RUNTIME_CACHE=./build/runtime-cache bash tools/fetch-runtime.sh
+#   bash build.sh
+# 详见 README「构建」一节。
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "src/**"
-      - "tools/**"
-      - "build.sh"
-      - ".github/workflows/build-apk.yml"
 
 permissions:
   contents: read
