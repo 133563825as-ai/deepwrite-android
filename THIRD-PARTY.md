@@ -1,7 +1,21 @@
-# 第三方组件与来源
+# 许可范围与第三方来源
 
-本仓库（`deepwrite-android`）只放 **Android 外壳**（Java）与**打包脚本**。
-打出来的 APK 里还装着应用本体与运行时，它们来自下面这些地方，**版权与许可归各自原作者**。
+## 0. 先读：本仓库的许可范围
+
+[`LICENSE`](LICENSE) 里的 **MIT 只覆盖本项目作者编写的部分**：
+
+- `src/`（Android 外壳的 Java 代码）
+- `build.sh`、`tools/`（打包与校验脚本）
+- `res/` 中由本项目编写的资源（如 `res/values/*.xml`、`res/mipmap-anydpi-v26/*.xml`）
+
+**不在 MIT 授权范围内的部分**（版权归各自原作者，本项目无权以此授权）：
+
+- `res/mipmap-*/ic_launcher*.png` —— 应用图标，提取自 DeepWrite 官方原版 APK（见第 2 节）
+- `assets/web/` —— DeepWrite 渲染层，Apache-2.0（见第 1 节）；构建时从上游收进来，
+  不随本仓库分发
+
+> 为什么把范围说明放在这里而不是 `LICENSE` 里：`LICENSE` 必须是**规范原文**，
+> GitHub 才能识别出仓库的许可类型；加了自己的说明就会被判成 `NOASSERTION`。
 
 ---
 
@@ -53,6 +67,6 @@
 
 ---
 
-## 本仓库自己写的那部分
+## 5. 本仓库自己写的那部分
 
-外壳 Java 代码、打包脚本与本项目编写的资源，按 [`LICENSE`](LICENSE)（MIT）授权。
+见第 0 节。

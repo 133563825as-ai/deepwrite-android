@@ -33,12 +33,12 @@
 
 | 部分 | 许可 |
 | --- | --- |
-| 本项目编写的部分（`src/` 的 Java 外壳、`build.sh`、`tools/`、本项目编写的资源） | **MIT** —— 见 [`LICENSE`](LICENSE) |
+| 本项目编写的部分（`src/` 的 Java 外壳、`build.sh`、`tools/`、本项目编写的资源） | **MIT** —— 见 [`LICENSE`](LICENSE)；范围见 [`THIRD-PARTY.md`](THIRD-PARTY.md) 第 0 节 |
 | DeepWrite 渲染层（应用本体，构建时从上游收进 `assets/web/`） | **Apache-2.0** —— 全文见 [`LICENSE-APACHE-2.0.txt`](LICENSE-APACHE-2.0.txt) |
 | 应用图标（`res/mipmap-*/ic_launcher*.png`，提取自官方原版 APK） | 版权归原作者，**不在 MIT 授权范围内** |
 | Node 运行时与 JS 依赖 | 见各上游项目；JS 依赖的许可文件随 APK 一并分发 |
 
-逐项来源、版权归属与再分发义务见 [`THIRD-PARTY.md`](THIRD-PARTY.md)。
+逐项来源、版权归属与再分发义务（含**不在 MIT 范围内的部分**）见 [`THIRD-PARTY.md`](THIRD-PARTY.md)。
 
 ⚠️ APK 里打包了上游的渲染层，因此**再分发时必须一并提供 Apache-2.0 许可证副本并保留版权声明** ——
 本仓库已附 `LICENSE-APACHE-2.0.txt`，Release 说明里也指向它。
