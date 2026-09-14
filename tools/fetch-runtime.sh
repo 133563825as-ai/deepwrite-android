@@ -97,7 +97,7 @@ CERT="$(find "$EXTRACT/ca-certificates"* -name "cert.pem" | head -1)"
 echo "④ 收进 Web 产物（$WEB_OUT）"
 [ -d "$WEB_OUT/renderer" ] || { echo "❌ 找不到 $WEB_OUT/renderer，先构建 Web 产物"; exit 1; }
 # ⚠️ 必须排除 *.apk：renderer/ 目录同时被 8790 当作 APK 的分发目录（放着一份
-# DeepWrite-mobile.apk 供手机下载）。不排除就会把上一版 APK 整份打进新 APK ——
+# DeepWrite-Android.apk 供手机下载）。不排除就会把上一版 APK 整份打进新 APK ——
 # 实测能给包里塞进 37MB 的死重量，装到手机上还会白占空间。
 if command -v rsync >/dev/null 2>&1; then
   rsync -a --exclude='*.apk' "$WEB_OUT/renderer" "$APKROOT/assets/web/"

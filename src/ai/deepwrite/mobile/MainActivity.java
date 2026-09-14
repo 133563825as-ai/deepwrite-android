@@ -44,7 +44,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * DeepWrite 独立版：APK 自带 Node 运行时与应用本体，不依赖任何外部服务。
+ * DeepWrite Android（独立版）：APK 自带 Node 运行时与应用本体，不依赖任何外部服务。
  *
  * 启动顺序：要存储权限 → 首次解压 assets（约 63MB）→ exec libnode.so server.mjs
  *          → 等 127.0.0.1:8790 就绪 → WebView 全屏加载。
@@ -197,7 +197,7 @@ public class MainActivity extends Activity {
         statusPanel.setPadding(pad, pad, pad, pad);
 
         statusTitle = new TextView(this);
-        statusTitle.setText("DeepWrite");
+        statusTitle.setText("DeepWrite Android");
         statusTitle.setTextColor(Color.parseColor("#2b2b2b"));
         statusTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
         statusTitle.setTypeface(Typeface.DEFAULT_BOLD);

@@ -1,5 +1,5 @@
 #!/bin/bash
-# DeepWrite 手机版 APK · 可移植构建脚本。
+# DeepWrite Android（独立版）APK · 可移植构建脚本。
 # 本地（Android 上的 Ubuntu 容器）与 GitHub Actions 共用这一份逻辑，
 # 唯一需要区分的是 ANDROID_SDK_ROOT。
 #
@@ -18,7 +18,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOLS="$ROOT/tools"
 WORK="${WORK_DIR:-$ROOT/build}"
-OUT_APK="${OUT_APK:-$ROOT/out/DeepWrite-mobile.apk}"
+OUT_APK="${OUT_APK:-$ROOT/out/DeepWrite-Android.apk}"
 
 SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/root/wk/android-sdk}}"
 if [ ! -d "$SDK" ]; then

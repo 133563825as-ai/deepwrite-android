@@ -1,7 +1,13 @@
-# DeepWrite 独立版（Android）
+# DeepWrite Android（独立版）
 
 一个**自带 Node 运行时**的 DeepWrite Android 应用：APK 里装着 Node 与应用本体，
 点开图标就自己起服务、自己加载界面，**不依赖任何外部容器或服务**。
+
+应用显示名是 **`DeepWrite Android`**（`res/values/strings.xml` 的 `app_name`）。
+带 `Android` 后缀是为了和官方原版 App 区分开 —— 本包是个人自建的外壳，不是官方发布。
+
+⚠️ **作品目录仍然是 `Documents/DeepWrite`**，没有跟着改名：那是 App 与容器**共用**的数据
+目录，改了会让已有作品「找不到」。
 
 版本号**跟随上游 DeepWrite 的发布号**，不再用早期那套 2.x / 3.x 的自增号 ——
 那套号把一个外壳版本炒到了 3.4.0，比它包着的本体（1.5.0）还大，看着像另一个产品。
@@ -53,7 +59,7 @@ RUNTIME_CACHE=./build/runtime-cache bash tools/fetch-runtime.sh
 # 2) 构建 APK
 bash build.sh
 
-# 产物：out/DeepWrite-mobile.apk
+# 产物：out/DeepWrite-Android.apk
 ```
 
 `fetch-runtime.sh` 从 Termux 源下载 arm64 的 Node 与依赖、收进上游渲染层产物、

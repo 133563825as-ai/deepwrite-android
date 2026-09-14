@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">DeepWrite</string>
+    <!-- 桌面图标与应用列表里显示的名字。带上 Android 是为了和官方原版 App 区分开：
+         本包是个人自建的外壳，不是官方发布（见 README「素材与内核来源」）。 -->
+    <string name="app_name">DeepWrite Android</string>
 </resources>
