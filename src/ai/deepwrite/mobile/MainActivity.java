@@ -28,6 +28,7 @@ import android.webkit.MimeTypeMap;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebChromeClient.FileChooserParams;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -56,6 +57,9 @@ public class MainActivity extends Activity {
     private static final int PORT = 18790;
     private static final int REQUEST_FILE_CHOOSER = 1001;
     private static final int REQUEST_LEGACY_STORAGE = 1002;
+
+    // App 自己的服务就跑在这个 host 上，只有它该留在 WebView 里加载。
+    private static final String LOOPBACK_HOST = "127.0.0.1";
 
     private FrameLayout root;
     private WebView webView;
@@ -115,7 +119,21 @@ public class MainActivity extends Activity {
                 return openFileChooser(callback, params);
             }
         });
-        webView.setWebViewClient(new WebViewClient());
+        // 回环地址之外的外链一律交给系统浏览器，WebView 自己只加载 App 的服务。
+        // 少了这一层，渲染层里任何一个外链都会把 WebView 导航走 —— 界面停在别人的
+        // 网页上，而且没有返回路径，只能重启 App。
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                return openExternallyIfNeeded(request.getUrl());
+            }
+
+            @Override
+            @SuppressWarnings("deprecation")
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return openExternallyIfNeeded(Uri.parse(url));
+            }
+        });
         root.addView(webView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -334,6 +352,38 @@ public class MainActivity extends Activity {
     }
 
     /* ---------------- 存储权限 ---------------- */
+
+    /**
+     * 回环地址留在 WebView 里加载（那是 App 自己的服务），其余 http(s) 开系统浏览器。
+     * 返回 true 表示「已经处理掉，WebView 不要再加载这个地址」。
+     */
+    private boolean openExternallyIfNeeded(Uri uri) {
+        if (uri == null) {
+            return false;
+        }
+        String scheme = uri.getScheme();
+        boolean isWebLink =
+                "http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme);
+        if (!isWebLink) {
+            return false;
+        }
+        String host = uri.getHost();
+        if (host == null) {
+            return false;
+        }
+        if (LOOPBACK_HOST.equals(host)
+                || "localhost".equalsIgnoreCase(host)
+                || "::1".equals(host)) {
+            return false;
+        }
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, uri));
+        } catch (ActivityNotFoundException error) {
+            // 没有能处理这个链接的应用：什么都不做，也绝不能把界面导航走。
+            Toast.makeText(this, "没有能打开这个链接的应用", Toast.LENGTH_SHORT).show();
+        }
+        return true;
+    }
 
     private boolean hasStorageAccess() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
