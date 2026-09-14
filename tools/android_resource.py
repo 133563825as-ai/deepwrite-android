@@ -380,7 +380,7 @@ if __name__ == "__main__":
     builder.start_element(
         "manifest",
         [
-            (None, "package", "ai.deepwrite.mobile", None),
+            (None, "package", "ai.deepwrite.mobile.android", None),
             ("http://schemas.android.com/apk/res/android", "versionCode", "1", (TYPE_INT_DEC, 1)),
             ("http://schemas.android.com/apk/res/android", "versionName", "1.5.0", None),
         ],

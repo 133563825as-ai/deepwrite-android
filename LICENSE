@@ -1,0 +1,38 @@
+# MIT License
+
+## ⚠️ 适用范围（先读这一段）
+
+本许可**只覆盖本项目作者编写的部分**：
+
+- `src/`（Android 外壳的 Java 代码）
+- `build.sh`、`tools/`（打包与校验脚本）
+- `res/` 中由本项目编写的资源（如 `res/values/*.xml`、`res/mipmap-anydpi-v26/*.xml`）
+
+**不在本许可授权范围内的部分**（版权归各自原作者）：
+
+- `res/mipmap-*/ic_launcher*.png` —— 应用图标，提取自 DeepWrite 官方原版 APK
+- `assets/web/` —— DeepWrite 渲染层（Apache-2.0），构建时从上游收进来，不随本仓库分发
+
+详见 [`THIRD-PARTY.md`](THIRD-PARTY.md)。
+
+---
+
+Copyright (c) 2026 133563825as-ai
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

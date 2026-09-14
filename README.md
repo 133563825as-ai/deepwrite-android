@@ -29,6 +29,20 @@
 本仓库只放**外壳**（Java）、**打包脚本**（`tools/`、`build.sh`）与**资源**，
 **不含 DeepWrite 本体源码**；渲染层产物由上游仓库构建后收进 `assets/web/`。
 
+## 许可
+
+| 部分 | 许可 |
+| --- | --- |
+| 本项目编写的部分（`src/` 的 Java 外壳、`build.sh`、`tools/`、本项目编写的资源） | **MIT** —— 见 [`LICENSE`](LICENSE) |
+| DeepWrite 渲染层（应用本体，构建时从上游收进 `assets/web/`） | **Apache-2.0** —— 全文见 [`LICENSE-APACHE-2.0.txt`](LICENSE-APACHE-2.0.txt) |
+| 应用图标（`res/mipmap-*/ic_launcher*.png`，提取自官方原版 APK） | 版权归原作者，**不在 MIT 授权范围内** |
+| Node 运行时与 JS 依赖 | 见各上游项目；JS 依赖的许可文件随 APK 一并分发 |
+
+逐项来源、版权归属与再分发义务见 [`THIRD-PARTY.md`](THIRD-PARTY.md)。
+
+⚠️ APK 里打包了上游的渲染层，因此**再分发时必须一并提供 Apache-2.0 许可证副本并保留版权声明** ——
+本仓库已附 `LICENSE-APACHE-2.0.txt`，Release 说明里也指向它。
+
 ## 为什么不用 WebView 壳
 
 早期版本是个 16 KB 的壳，只负责打开一个窗口指向容器里的 Web 服务 ——
@@ -101,7 +115,7 @@ AXML 绕开 aapt2。**那个前提是错的** —— apt 的 `aapt` 包顺带提
 没有 adb、也没有无障碍权限，所以**启动失败的日志会直接显示在 App 屏幕上**
 （node 的 stdout/stderr 尾巴）。这是目前唯一可靠的排错手段。
 
-日志文件本身在 `/data/data/ai.deepwrite.mobile/files/logs/node.log`。
+日志文件本身在 `/data/data/ai.deepwrite.mobile.android/files/logs/node.log`。
 
 容器与手机**共享 loopback**，所以手机上的 App 跑起来之后，可以直接从容器读它：
 
@@ -115,8 +129,8 @@ curl -s http://127.0.0.1:18790/__diag       # 三个 utility 的 fork / stderr
 | 用途 | 路径 |
 | --- | --- |
 | 作品（用户可见） | `/sdcard/Documents/DeepWrite` |
-| 配置 / 密钥 | `/data/data/ai.deepwrite.mobile/files/data` |
-| 运行时 / 应用（解压出来） | `/data/data/ai.deepwrite.mobile/files/{runtime,web}` |
+| 配置 / 密钥 | `/data/data/ai.deepwrite.mobile.android/files/data` |
+| 运行时 / 应用（解压出来） | `/data/data/ai.deepwrite.mobile.android/files/{runtime,web}` |
 
 因为要按真实路径读写作品，需要 `MANAGE_EXTERNAL_STORAGE`（所有文件访问）。
 自用没问题，上架 Google Play 会被拒。

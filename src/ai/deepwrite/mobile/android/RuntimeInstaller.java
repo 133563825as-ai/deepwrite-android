@@ -1,4 +1,4 @@
-package ai.deepwrite.mobile;
+package ai.deepwrite.mobile.android;
 
 import android.content.Context;
 import android.content.pm.PackageInfo;

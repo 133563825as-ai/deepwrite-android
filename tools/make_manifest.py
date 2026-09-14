@@ -18,7 +18,7 @@ from android_resource import (  # noqa: E402
 )
 
 ANDROID_NS = "http://schemas.android.com/apk/res/android"
-PACKAGE = "ai.deepwrite.mobile"
+PACKAGE = "ai.deepwrite.mobile.android"
 
 # 系统主题的资源 id
 THEME_DEVICE_DEFAULT_LIGHT_NO_ACTION_BAR = 0x01030237
