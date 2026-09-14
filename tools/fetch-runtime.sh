@@ -111,6 +111,21 @@ cp "$WEB_OUT/server-workspace.mjs" "$APKROOT/assets/web/server-workspace.mjs"
 cp "$WEB_OUT/server-dialog.mjs" "$APKROOT/assets/web/server-dialog.mjs"
 cp "$WEB_OUT/api-commands.json" "$APKROOT/assets/web/api-commands.json"
 [ -f "$WEB_OUT/package.json" ] && cp "$WEB_OUT/package.json" "$APKROOT/assets/web/package.json"
+
+# 许可与归属：assets/web/ 是上游 DeepWrite 的渲染层（Apache-2.0），再分发必须
+# 随附许可证副本（第 4(a) 条）并声明修改（第 4(b) 条），所以两份都放进包里 ——
+# 只放在仓库里的话，单独下载 APK 的人拿不到。
+# ⚠️ 必须写在这一步：$APKROOT 每轮开头被 rm -rf 重建，写在 build.sh 里会被冲掉。
+# ⚠️ Apache-2.0 正文必须**原样**复制，一个字都不能改。
+cp "$ROOT/LICENSE-APACHE-2.0.txt" "$APKROOT/assets/web/LICENSE-APACHE-2.0.txt"
+# 归属说明加一行抬头，因为里面的仓库相对路径在包内不解析。
+{
+  printf '<!-- 本文件随 APK 分发（位于 assets/web/ 下），是仓库根 THIRD-PARTY.md 的副本。\n'
+  printf '     文中指向 tools/ 等仓库路径的引用在包内不解析，完整仓库：\n'
+  printf '     https://github.com/133563825as-ai/deepwrite-android -->\n\n'
+  cat "$ROOT/THIRD-PARTY.md"
+} > "$APKROOT/assets/web/THIRD-PARTY.md"
+echo "   已随包附上 LICENSE-APACHE-2.0.txt 与 THIRD-PARTY.md"
 # Electron 兼容层与桥：server.mjs 里 import "electron"，用软链目录顶替
 mkdir -p "$APKROOT/assets/web/node_modules/electron"
 cp "$WEB_OUT/node_modules/electron/index.js" "$APKROOT/assets/web/node_modules/electron/index.js" 2>/dev/null || \
