@@ -102,13 +102,19 @@ fi
 # 真实值放 public-data.local（已 .gitignore），这里只复制成 APK 资源，
 # 所以仓库里不出现密钥，而设备上仍可从解压后的 web/public-data.properties 读到。
 # 源文件不存在就**显式删掉产物**：留着上一轮的会把「没配置」伪装成「配好了」。
+#
+# ⚠️ 复制之后**必须登记进 assets/manifest.json**：RuntimeInstaller 是按清单解压的，
+# 不进清单的文件在 APK 里躺着、却永远落不到设备上。2026-09-15 就是这么栽的 ——
+# 装的是 vc42 新版、渲染层 bundle 都换名了，技能广场却照旧报「无法解析服务器地址」，
+# 因为设备上根本没有那个配置文件。
 PUBLIC_DATA_SRC="$ROOT/public-data.local"
 PUBLIC_DATA_DST="$APKROOT/assets/web/public-data.properties"
 if [ -f "$PUBLIC_DATA_SRC" ]; then
   cp "$PUBLIC_DATA_SRC" "$PUBLIC_DATA_DST"
-  echo "   技能广场配置：已放入 $PUBLIC_DATA_DST"
+  python3 "$TOOLS/register-public-data.py" "$APKROOT" present
 else
   rm -f "$PUBLIC_DATA_DST"
+  python3 "$TOOLS/register-public-data.py" "$APKROOT" absent
   echo "   ⚠️ 没有 public-data.local —— 技能广场会回落到占位域 .invalid，"
   echo "      用户在界面上会看到「无法解析技能广场服务器地址，请检查 DNS 或网络连接」"
 fi

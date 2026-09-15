@@ -6,8 +6,8 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ai.deepwrite.mobile.android"
-    android:versionCode="42"
-    android:versionName="1.5.17">
+    android:versionCode="43"
+    android:versionName="1.5.18">
 
     <!-- Android 14 起，targetSdkVersion < 23 的包会被系统直接拒装
          （INSTALL_FAILED_DEPRECATED_SDK_VERSION）。缺省时 targetSdk 会退化成 1，
