@@ -9,3 +9,8 @@ __pycache__/
 
 # 本地产出的安装包（CI 通过 artifact 分发）
 out/
+
+# 技能广场 / 官方公开数据服务的地址与 Key。
+# 值虽然随官方安装包公开发布，但仓库里不该出现密钥：真实值放本地这份文件，
+# 由 build.sh 在打包时复制成 APK 资源 assets/web/public-data.properties。
+public-data.local

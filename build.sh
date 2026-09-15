@@ -97,6 +97,22 @@ if [ ! -d "$APKROOT/assets" ]; then
   echo "❌ 缺少 $APKROOT —— 先跑一次： bash tools/fetch-runtime.sh"
   exit 1
 fi
+
+# 技能广场 / 官方公开数据服务的地址与 Key（见 NodeRunner.applyPublicDataConfig）。
+# 真实值放 public-data.local（已 .gitignore），这里只复制成 APK 资源，
+# 所以仓库里不出现密钥，而设备上仍可从解压后的 web/public-data.properties 读到。
+# 源文件不存在就**显式删掉产物**：留着上一轮的会把「没配置」伪装成「配好了」。
+PUBLIC_DATA_SRC="$ROOT/public-data.local"
+PUBLIC_DATA_DST="$APKROOT/assets/web/public-data.properties"
+if [ -f "$PUBLIC_DATA_SRC" ]; then
+  cp "$PUBLIC_DATA_SRC" "$PUBLIC_DATA_DST"
+  echo "   技能广场配置：已放入 $PUBLIC_DATA_DST"
+else
+  rm -f "$PUBLIC_DATA_DST"
+  echo "   ⚠️ 没有 public-data.local —— 技能广场会回落到占位域 .invalid，"
+  echo "      用户在界面上会看到「无法解析技能广场服务器地址，请检查 DNS 或网络连接」"
+fi
+
 python3 - "$WORK" "$APKROOT" <<'PY'
 import os, sys, zipfile
 

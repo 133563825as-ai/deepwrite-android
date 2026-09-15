@@ -4,10 +4,12 @@ import android.content.Context;
 import android.util.Log;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Map;
+import java.util.Properties;
 
 /**
  * 在本机拉起 Node 运行时（libnode.so + server.mjs），不做任何跨进程之外的魔法。
@@ -74,12 +76,49 @@ public class NodeRunner {
         env.put("PATH", "/system/bin:/system/xbin");
         env.put("LANG", "zh_CN.UTF-8");
         env.put("LC_ALL", "zh_CN.UTF-8");
+        applyPublicDataConfig(env, webDir);
         builder.redirectErrorStream(true);
         builder.redirectOutput(ProcessBuilder.Redirect.appendTo(logFile));
 
         process = builder.start();
         // 这里不能打 process.pid()：那是 Java 9+ 的 API，Android 的 Process 没有它。
         Log.i(TAG, "node 已启动，cwd=" + webDir);
+    }
+
+    /**
+     * 技能广场 / 官方公开数据服务的地址与 Key。
+     *
+     * 主进程侧 deepwrite-public-data-config.ts 从 import.meta.env 取这两个值（构建时被换成
+     * 了读 process.env 的代理，既认 MAIN_VITE_ 前缀、也认去掉前缀的短名，所以这里用短名）。
+     * **不配就会回落到占位域 https://deepwrite-public-data.invalid** —— .invalid 是 RFC 2606
+     * 保留、永不解析的顶级域，于是 DNS 必然失败，用户在界面上看到的是「无法解析技能广场
+     * 服务器地址，请检查 DNS 或网络连接」：一句会把人带去查网络的误导提示。
+     *
+     * 值由 build.sh 从 public-data.local（已 .gitignore）复制成
+     * assets/web/public-data.properties 打进包，所以仓库里不出现密钥；
+     * 文件不存在就保持未配置，不编造默认值。
+     */
+    private static void applyPublicDataConfig(Map<String, String> env, File webDir) {
+        File file = new File(webDir, "public-data.properties");
+        if (!file.isFile()) {
+            Log.i(TAG, "没有 public-data.properties —— 技能广场保持未配置");
+            return;
+        }
+        Properties props = new Properties();
+        try (FileInputStream in = new FileInputStream(file)) {
+            props.load(in);
+        } catch (IOException error) {
+            Log.w(TAG, "读取 public-data.properties 失败", error);
+            return;
+        }
+        putIfPresent(env, "DEEPWRITE_PUBLIC_DATA_API_BASE_URL", props.getProperty("baseUrl"));
+        putIfPresent(env, "DEEPWRITE_PUBLIC_DATA_API_KEY", props.getProperty("apiKey"));
+    }
+
+    private static void putIfPresent(Map<String, String> env, String name, String value) {
+        if (value != null && !value.trim().isEmpty()) {
+            env.put(name, value.trim());
+        }
     }
 
     /** 轮询 /__status 直到服务就绪、进程死亡或超时。 */
